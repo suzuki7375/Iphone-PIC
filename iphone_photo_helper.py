@@ -59,6 +59,36 @@ def is_photo_file(path: Path) -> bool:
     return path.suffix.lower() in {".jpg", ".jpeg", ".png", ".heic", ".mov", ".mp4", ".gif"}
 
 
+def guess_iphone_photo_source() -> Path | None:
+    """嘗試推測 iPhone 已掛載後最可能的照片來源資料夾。"""
+    system = platform.system().lower()
+    home = Path.home()
+
+    candidates: list[Path] = []
+    if system == "darwin":
+        candidates.extend(
+            [
+                Path("/Volumes"),
+                Path("/Volumes/iPhone"),
+            ]
+        )
+    elif system == "linux":
+        candidates.extend(
+            [
+                Path("/run/user") / str(os.getuid()) / "gvfs",
+                home / "手機",
+                home / "Phone",
+            ]
+        )
+    elif system == "windows":
+        candidates.extend([home / "Pictures", Path("C:/")])
+
+    for candidate in candidates:
+        if candidate.exists() and candidate.is_dir():
+            return candidate
+    return None
+
+
 def copy_photos_by_date(source_dir: Path, target_root: Path, prefix: str, start_date: datetime, end_date: datetime) -> tuple[int, Path]:
     date_range_text = f"{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}"
     target_dir = target_root / f"{prefix}_{date_range_text}"
@@ -130,12 +160,18 @@ def run_photo_export(person_name: str, start_text: str, end_text: str, custom_na
 
     prefix = custom_name.strip() or person_name
 
-    source = filedialog.askdirectory(title="請選擇 iPhone 照片來源資料夾")
+    source_hint = guess_iphone_photo_source()
+    source = filedialog.askdirectory(
+        title="請選擇 iPhone 照片來源資料夾（例如 DCIM）",
+        initialdir=str(source_hint) if source_hint else None,
+    )
     if not source:
+        messagebox.showwarning("未選擇來源", "未選擇 iPhone 照片來源資料夾，已取消。")
         return
 
     target = filedialog.askdirectory(title="請選擇照片複製輸出資料夾")
     if not target:
+        messagebox.showwarning("未選擇輸出", "未選擇輸出資料夾，已取消。")
         return
 
     copied_count, out_dir = copy_photos_by_date(
