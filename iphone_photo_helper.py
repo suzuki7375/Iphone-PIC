@@ -1,7 +1,11 @@
+import os
 import platform
+import shutil
 import subprocess
 import tkinter as tk
-from tkinter import messagebox
+from datetime import datetime
+from pathlib import Path
+from tkinter import filedialog, messagebox
 
 
 def run_command(cmd):
@@ -15,7 +19,6 @@ def run_command(cmd):
 def detect_iphone_connected() -> tuple[bool, str]:
     system = platform.system().lower()
 
-    # macOS: use system_profiler to detect iPhone over USB
     if system == "darwin":
         code, output = run_command(["system_profiler", "SPUSBDataType"])
         if code != 0:
@@ -24,7 +27,6 @@ def detect_iphone_connected() -> tuple[bool, str]:
         found = any(k in output.lower() for k in keywords)
         return found, "已偵測到 iPhone。" if found else "尚未偵測到 iPhone。"
 
-    # Linux: use lsusb
     if system == "linux":
         code, output = run_command(["lsusb"])
         if code != 0:
@@ -33,7 +35,6 @@ def detect_iphone_connected() -> tuple[bool, str]:
         found = any(k in output.lower() for k in keywords)
         return found, "已偵測到 iPhone。" if found else "尚未偵測到 iPhone。"
 
-    # Windows: fallback to PowerShell PnP query
     if system == "windows":
         ps_cmd = [
             "powershell",
@@ -50,7 +51,53 @@ def detect_iphone_connected() -> tuple[bool, str]:
     return False, f"目前不支援的系統：{platform.system()}"
 
 
-def run_flow(person_name: str):
+def parse_date(date_text: str) -> datetime:
+    return datetime.strptime(date_text.strip(), "%Y-%m-%d")
+
+
+def is_photo_file(path: Path) -> bool:
+    return path.suffix.lower() in {".jpg", ".jpeg", ".png", ".heic", ".mov", ".mp4", ".gif"}
+
+
+def copy_photos_by_date(source_dir: Path, target_root: Path, prefix: str, start_date: datetime, end_date: datetime) -> tuple[int, Path]:
+    date_range_text = f"{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}"
+    target_dir = target_root / f"{prefix}_{date_range_text}"
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    copied_count = 0
+    start_ts = datetime.combine(start_date.date(), datetime.min.time()).timestamp()
+    end_ts = datetime.combine(end_date.date(), datetime.max.time()).timestamp()
+
+    for root, _, files in os.walk(source_dir):
+        for filename in files:
+            src_file = Path(root) / filename
+            if not is_photo_file(src_file):
+                continue
+
+            try:
+                file_ts = src_file.stat().st_mtime
+            except OSError:
+                continue
+
+            if start_ts <= file_ts <= end_ts:
+                dst_file = target_dir / src_file.name
+                if dst_file.exists():
+                    stem = dst_file.stem
+                    suffix = dst_file.suffix
+                    idx = 1
+                    while True:
+                        candidate = target_dir / f"{stem}_{idx}{suffix}"
+                        if not candidate.exists():
+                            dst_file = candidate
+                            break
+                        idx += 1
+                shutil.copy2(src_file, dst_file)
+                copied_count += 1
+
+    return copied_count, target_dir
+
+
+def run_photo_export(person_name: str, start_text: str, end_text: str, custom_name: str):
     connected, detail = detect_iphone_connected()
 
     if not connected:
@@ -67,28 +114,84 @@ def run_flow(person_name: str):
         "請確認手機上是否已按下『信任』，並完成密碼輸入解鎖。\n"
         "如果已完成，請按『是』繼續。",
     )
-
     if not trust_ok:
-        messagebox.showinfo("操作中止", "請先在 iPhone 上完成『信任』與密碼輸入，再重新執行。")
         return
 
-    messagebox.showinfo(
-        "檢查完成",
-        f"{person_name} 流程已準備完成：\n"
-        "1) iPhone 已連線\n"
-        "2) 已提醒確認信任與密碼輸入\n\n"
-        "下一步可接續執行照片整理程序。",
+    try:
+        start_date = parse_date(start_text)
+        end_date = parse_date(end_text)
+    except ValueError:
+        messagebox.showerror("日期格式錯誤", "請使用 YYYY-MM-DD 格式，例如 2026-05-18")
+        return
+
+    if start_date > end_date:
+        messagebox.showerror("日期區間錯誤", "開始日期不能晚於結束日期。")
+        return
+
+    prefix = custom_name.strip() or person_name
+
+    source = filedialog.askdirectory(title="請選擇 iPhone 照片來源資料夾")
+    if not source:
+        return
+
+    target = filedialog.askdirectory(title="請選擇照片複製輸出資料夾")
+    if not target:
+        return
+
+    copied_count, out_dir = copy_photos_by_date(
+        Path(source),
+        Path(target),
+        prefix,
+        start_date,
+        end_date,
     )
+
+    messagebox.showinfo(
+        "完成",
+        f"已完成照片篩選與複製。\n\n"
+        f"區間：{start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}\n"
+        f"輸出資料夾：{out_dir}\n"
+        f"複製檔案數量：{copied_count}",
+    )
+
+
+def open_date_window(person_name: str):
+    win = tk.Toplevel()
+    win.title(f"{person_name} - 選擇照片建立時間區間")
+    win.geometry("420x280")
+
+    tk.Label(win, text="開始日期 (YYYY-MM-DD)").pack(pady=(16, 4))
+    start_entry = tk.Entry(win, width=24)
+    start_entry.pack()
+
+    tk.Label(win, text="結束日期 (YYYY-MM-DD)").pack(pady=(14, 4))
+    end_entry = tk.Entry(win, width=24)
+    end_entry.pack()
+
+    tk.Label(win, text="檔案名稱前綴（可自訂）").pack(pady=(14, 4))
+    name_entry = tk.Entry(win, width=24)
+    name_entry.insert(0, person_name)
+    name_entry.pack()
+
+    tk.Label(win, text="範例輸出資料夾：Xiang_20260101_20260131", fg="gray").pack(pady=(12, 10))
+
+    tk.Button(
+        win,
+        text="開始複製照片",
+        width=18,
+        height=2,
+        command=lambda: run_photo_export(person_name, start_entry.get(), end_entry.get(), name_entry.get()),
+    ).pack()
 
 
 def build_ui():
     root = tk.Tk()
     root.title("iPhone 照片整理助手")
-    root.geometry("420x220")
+    root.geometry("460x260")
 
     label = tk.Label(
         root,
-        text="請選擇要執行的流程：\n按下按鈕後會檢查 iPhone 連線與信任狀態",
+        text="請選擇流程\n1) 進入手機照片\n2) 選建立時間區間\n3) 依區間複製並用名稱+日期命名",
         font=("Arial", 11),
         justify="center",
     )
@@ -97,27 +200,25 @@ def build_ui():
     button_frame = tk.Frame(root)
     button_frame.pack(pady=10)
 
-    btn_xiang = tk.Button(
+    tk.Button(
         button_frame,
         text="Xiang",
         width=12,
         height=2,
-        command=lambda: run_flow("Xiang"),
-    )
-    btn_xiang.grid(row=0, column=0, padx=12)
+        command=lambda: open_date_window("Xiang"),
+    ).grid(row=0, column=0, padx=12)
 
-    btn_minju = tk.Button(
+    tk.Button(
         button_frame,
         text="MinJu",
         width=12,
         height=2,
-        command=lambda: run_flow("MinJu"),
-    )
-    btn_minju.grid(row=0, column=1, padx=12)
+        command=lambda: open_date_window("MinJu"),
+    ).grid(row=0, column=1, padx=12)
 
     tips = tk.Label(
         root,
-        text="提示：若未安裝對應驅動/工具，裝置偵測可能失敗。",
+        text="提示：請先將 iPhone 照片掛載為可讀取資料夾，再由程式選取來源。",
         fg="gray",
         font=("Arial", 9),
     )
@@ -130,5 +231,4 @@ if __name__ == "__main__":
     try:
         build_ui()
     except KeyboardInterrupt:
-        # Allow Ctrl+C / terminal interrupt to exit quietly without traceback.
         pass
