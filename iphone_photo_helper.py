@@ -94,7 +94,20 @@ def guess_iphone_photo_source() -> Path | None:
 
 
 
-def choose_directory_with_manual_input(title: str, initialdir: Path | None = None, mustexist: bool = True) -> Path | None:
+def choose_directory_with_manual_input(
+    title: str,
+    initialdir: Path | None = None,
+    mustexist: bool = True,
+    prefer_manual: bool = False,
+) -> Path | None:
+    if prefer_manual:
+        path_text = simpledialog.askstring("手動輸入路徑", "請貼上完整資料夾路徑：")
+        if path_text:
+            candidate = Path(path_text.strip().strip('"')).expanduser()
+            if candidate.exists() and candidate.is_dir():
+                return candidate
+            messagebox.showerror("路徑無效", f"找不到資料夾：\n{candidate}")
+
     selected = filedialog.askdirectory(
         title=title,
         initialdir=str(initialdir) if initialdir else str(Path.home()),
@@ -205,6 +218,7 @@ def run_photo_export(person_name: str, start_text: str, end_text: str, custom_na
         title="請選擇 iPhone 照片來源資料夾（例如 DCIM）",
         initialdir=source_hint if source_hint else Path.home(),
         mustexist=True,
+        prefer_manual=True,
     )
     if not source:
         messagebox.showwarning("未選擇來源", "未選擇 iPhone 照片來源資料夾，已取消。")
