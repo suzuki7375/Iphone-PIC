@@ -5,7 +5,7 @@ import subprocess
 import tkinter as tk
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, simpledialog
 
 
 def run_command(cmd):
@@ -92,6 +92,35 @@ def guess_iphone_photo_source() -> Path | None:
     return None
 
 
+
+
+def choose_directory_with_manual_input(title: str, initialdir: Path | None = None, mustexist: bool = True) -> Path | None:
+    selected = filedialog.askdirectory(
+        title=title,
+        initialdir=str(initialdir) if initialdir else str(Path.home()),
+        mustexist=mustexist,
+    )
+    if selected:
+        return Path(selected)
+
+    manual = messagebox.askyesno(
+        "改用手動輸入",
+        "如果資料夾選擇視窗看不到目標路徑，\n是否改用手動輸入完整資料夾路徑？",
+    )
+    if not manual:
+        return None
+
+    path_text = simpledialog.askstring("手動輸入路徑", "請貼上完整資料夾路徑：")
+    if not path_text:
+        return None
+
+    candidate = Path(path_text.strip().strip('"')).expanduser()
+    if not candidate.exists() or not candidate.is_dir():
+        messagebox.showerror("路徑無效", f"找不到資料夾：\n{candidate}")
+        return None
+
+    return candidate
+
 def copy_photos_by_date(source_dir: Path, target_root: Path, prefix: str, start_date: datetime, end_date: datetime) -> tuple[int, Path]:
     date_range_text = f"{start_date.strftime('%Y%m%d')}_{end_date.strftime('%Y%m%d')}"
     target_dir = target_root / f"{prefix}_{date_range_text}"
@@ -172,23 +201,27 @@ def run_photo_export(person_name: str, start_text: str, end_text: str, custom_na
             "再把照片複製到本機資料夾後，於此程式選擇該本機資料夾。"
         )
 
-    source = filedialog.askdirectory(
+    source = choose_directory_with_manual_input(
         title="請選擇 iPhone 照片來源資料夾（例如 DCIM）",
-        initialdir=str(source_hint) if source_hint else str(Path.home()),
+        initialdir=source_hint if source_hint else Path.home(),
         mustexist=True,
     )
     if not source:
         messagebox.showwarning("未選擇來源", "未選擇 iPhone 照片來源資料夾，已取消。")
         return
 
-    target = filedialog.askdirectory(title="請選擇照片複製輸出資料夾")
+    target = choose_directory_with_manual_input(
+        title="請選擇照片複製輸出資料夾",
+        initialdir=Path.home(),
+        mustexist=True,
+    )
     if not target:
         messagebox.showwarning("未選擇輸出", "未選擇輸出資料夾，已取消。")
         return
 
     copied_count, out_dir = copy_photos_by_date(
-        Path(source),
-        Path(target),
+        source,
+        target,
         prefix,
         start_date,
         end_date,
