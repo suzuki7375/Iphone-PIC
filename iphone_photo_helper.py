@@ -127,4 +127,8 @@ def build_ui():
 
 
 if __name__ == "__main__":
-    build_ui()
+    try:
+        build_ui()
+    except KeyboardInterrupt:
+        # Allow Ctrl+C / terminal interrupt to exit quietly without traceback.
+        pass
