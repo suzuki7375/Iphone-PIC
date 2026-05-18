@@ -52,7 +52,10 @@ def detect_iphone_connected() -> tuple[bool, str]:
 
 
 def parse_date(date_text: str) -> datetime:
-    return datetime.strptime(date_text.strip(), "%Y-%m-%d")
+    text = date_text.strip()
+    if '-' in text:
+        raise ValueError('日期不可包含 -')
+    return datetime.strptime(text, "%Y%m%d")
 
 
 def is_photo_file(path: Path) -> bool:
@@ -151,7 +154,7 @@ def run_photo_export(person_name: str, start_text: str, end_text: str, custom_na
         start_date = parse_date(start_text)
         end_date = parse_date(end_text)
     except ValueError:
-        messagebox.showerror("日期格式錯誤", "請使用 YYYY-MM-DD 格式，例如 2026-05-18")
+        messagebox.showerror("日期格式錯誤", "請使用 YYYYMMDD 格式，例如 20260518（不可包含 -）")
         return
 
     if start_date > end_date:
@@ -161,9 +164,18 @@ def run_photo_export(person_name: str, start_text: str, end_text: str, custom_na
     prefix = custom_name.strip() or person_name
 
     source_hint = guess_iphone_photo_source()
+
+    if platform.system().lower() == "windows":
+        messagebox.showinfo(
+            "Windows 提示",
+            "若視窗中看不到 iPhone 裝置，請先在檔案總管打開 iPhone 的 DCIM，\n"
+            "再把照片複製到本機資料夾後，於此程式選擇該本機資料夾。"
+        )
+
     source = filedialog.askdirectory(
         title="請選擇 iPhone 照片來源資料夾（例如 DCIM）",
-        initialdir=str(source_hint) if source_hint else None,
+        initialdir=str(source_hint) if source_hint else str(Path.home()),
+        mustexist=True,
     )
     if not source:
         messagebox.showwarning("未選擇來源", "未選擇 iPhone 照片來源資料夾，已取消。")
@@ -185,7 +197,7 @@ def run_photo_export(person_name: str, start_text: str, end_text: str, custom_na
     messagebox.showinfo(
         "完成",
         f"已完成照片篩選與複製。\n\n"
-        f"區間：{start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')}\n"
+        f"區間：{start_date.strftime('%Y%m%d')} ~ {end_date.strftime('%Y%m%d')}\n"
         f"輸出資料夾：{out_dir}\n"
         f"複製檔案數量：{copied_count}",
     )
@@ -196,11 +208,11 @@ def open_date_window(person_name: str):
     win.title(f"{person_name} - 選擇照片建立時間區間")
     win.geometry("420x280")
 
-    tk.Label(win, text="開始日期 (YYYY-MM-DD)").pack(pady=(16, 4))
+    tk.Label(win, text="開始日期 (YYYYMMDD)").pack(pady=(16, 4))
     start_entry = tk.Entry(win, width=24)
     start_entry.pack()
 
-    tk.Label(win, text="結束日期 (YYYY-MM-DD)").pack(pady=(14, 4))
+    tk.Label(win, text="結束日期 (YYYYMMDD)").pack(pady=(14, 4))
     end_entry = tk.Entry(win, width=24)
     end_entry.pack()
 
